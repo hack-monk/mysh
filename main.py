@@ -17,20 +17,21 @@ def handle_exit(command: str) -> bool:
     return command.strip() == "exit 0"
 
 
-def handle_echo(command: str):
+def handle_echo(args: list[str]):
     """Handle the echo command."""
-    args = command.split()[1:]
-    sys.stdout.write(" ".join(args) + "\n")
+    #args = command.split()[1:]
+    #sys.stdout.write(" ".join(args) + "\n")
+    sys.stdout.write(" ".join(args[1:]) + "\n")
 
-
-def handle_type(command: str):
+def handle_type(args: list[str]):
     """Handle the type command."""
-    args = command.split()[1:]
-    if not args:
+    #args = command.split()[1:]
+    if  len(args) < 2:
         sys.stdout.write("type: missing argument\n")
         return
 
-    cmd = args[0]
+    cmd = args[1]
+
     if cmd in BUILTIN_COMMANDS:
         sys.stdout.write(f"{cmd} is a shell builtin\n")
     elif path := shutil.which(cmd):
@@ -41,38 +42,39 @@ def handle_type(command: str):
 
 def handle_command(command: str):
     """Parse and execute the command."""
-    if not command:
+    args = parse_command(command)
+    if not args:
         return
 
-    cmd = command.split()[0]
+    cmd = args[0]
 
     if cmd == "echo":
-        handle_echo(command)
+        handle_echo(args)
     elif cmd == "type":
-        handle_type(command)
+        handle_type(args)
     elif cmd == "exit":
         sys.stdout.write("Use 'exit 0' to quit.\n")
     elif cmd == "pwd":
         handle_pwd()
     elif cmd == "cd":
-        handle_cd(command)
+        handle_cd(args)
     else:
         #sys.stdout.write(f"{command}: command not found\n")
-        run_program(command.split())
+        run_program(args)
 
 def handle_pwd():
     """Handle the pwd command."""
     sys.stdout.write(os.getcwd() + "\n")
 
-def handle_cd(command: str):
+def handle_cd(args: list[str]):
     """Handle the cd command."""
-    args = command.split()
-
+    #args = command.split()
     if len(args) != 2:
         sys.stdout.write("cd: missing argument\n")
         return
 
     path = args[1]
+
 
     if path.startswith("~"):
         home_dir = os.environ.get("HOME")
@@ -90,6 +92,39 @@ def handle_cd(command: str):
         sys.stdout.write(f"cd: {path}: No such file or directory\n")
     except NotADirectoryError:
         sys.stdout.write(f"cd: {path}: Not a directory\n")
+
+def parse_command(command: str) -> list:
+    """Custom parser that handles single quotes and splits like a shell."""
+    args = []
+    current = ''
+    in_single_quote = False
+    i = 0
+
+    while i < len(command):
+        char = command[i]
+
+        if char == "'":
+            if in_single_quote:
+                # End of quoted block
+                in_single_quote = False
+            else:
+                # Start of quoted block
+                in_single_quote = True
+            i += 1
+            continue
+
+        if char.isspace() and not in_single_quote:
+            if current != '':
+                args.append(current)
+                current = ''
+        else:
+            current += char
+        i += 1
+
+    if current:
+        args.append(current)
+
+    return args
 
 
 def run_program(args: list[str]):
