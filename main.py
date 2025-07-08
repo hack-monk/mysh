@@ -5,17 +5,14 @@ import os
 
 BUILTIN_COMMANDS = ["exit", "echo", "type", "pwd", "cd"]
 
-
 def prompt():
     """Display the shell prompt."""
     sys.stdout.write("$ ")
     sys.stdout.flush()
 
-
 def handle_exit(command: str) -> bool:
     """Handle the exit command."""
     return command.strip() == "exit 0"
-
 
 def handle_echo(args: list[str]):
     """Handle the echo command."""
@@ -38,7 +35,6 @@ def handle_type(args: list[str]):
         sys.stdout.write(f"{cmd} is {path}\n")
     else:
         sys.stdout.write(f"{cmd}: not found\n")
-
 
 def handle_command(command: str):
     """Parse and execute the command."""
@@ -75,7 +71,6 @@ def handle_cd(args: list[str]):
 
     path = args[1]
 
-
     if path.startswith("~"):
         home_dir = os.environ.get("HOME")
         if not home_dir:
@@ -94,27 +89,27 @@ def handle_cd(args: list[str]):
         sys.stdout.write(f"cd: {path}: Not a directory\n")
 
 def parse_command(command: str) -> list:
-    """Custom parser that handles single quotes and splits like a shell."""
+    """Parse shell command handling single and double quotes correctly."""
     args = []
     current = ''
     in_single_quote = False
+    in_double_quote = False
     i = 0
 
     while i < len(command):
         char = command[i]
 
-        if char == "'":
-            if in_single_quote:
-                # End of quoted block
-                in_single_quote = False
-            else:
-                # Start of quoted block
-                in_single_quote = True
+        if char == "'" and not in_double_quote:
+            in_single_quote = not in_single_quote
+            i += 1
+            continue
+        elif char == '"' and not in_single_quote:
+            in_double_quote = not in_double_quote
             i += 1
             continue
 
-        if char.isspace() and not in_single_quote:
-            if current != '':
+        if char.isspace() and not in_single_quote and not in_double_quote:
+            if current:
                 args.append(current)
                 current = ''
         else:
@@ -140,7 +135,6 @@ def run_program(args: list[str]):
     else:
         sys.stdout.write(f"{args[0]}: command not found\n")
 
-
 def main():
     """Main REPL loop."""
     while True:
@@ -156,7 +150,6 @@ def main():
             break
 
         handle_command(command)
-
 
 if __name__ == "__main__":
     main()
