@@ -107,8 +107,31 @@ def parse_command(command: str) -> list:
             in_double_quote = not in_double_quote
             i += 1
             continue
+        elif char == '\\':
+            # Backslash escape logic
+            i += 1
+            if i >= len(command):
+                # Trailing backslash — treat as literal
+                current += '\\'
+                break
+            next_char = command[i]
 
-        if char.isspace() and not in_single_quote and not in_double_quote:
+            if in_single_quote:
+                # In single quotes, backslash is literal
+                current += '\\' + next_char
+            elif in_double_quote:
+                # Only escape ", \, $, ` inside double quotes
+                if next_char in ['\\', '"', '$', '`']:
+                    current += next_char
+                else:
+                    current += '\\' + next_char
+            else:
+                # Outside quotes — backslash escapes any char
+                current += next_char
+            i += 1
+            continue
+
+        elif char.isspace() and not in_single_quote and not in_double_quote:
             if current:
                 args.append(current)
                 current = ''
