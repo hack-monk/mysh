@@ -15,26 +15,39 @@ def handle_exit(command: str) -> bool:
     return command.strip() == "exit 0"
 
 def handle_echo(args: list[str]):
-    """Handle the echo command."""
-    #args = command.split()[1:]
-    #sys.stdout.write(" ".join(args) + "\n")
-    sys.stdout.write(" ".join(args[1:]) + "\n")
+    """Handle the echo command with optional redirection."""
+    args, redirect_file = split_redirect(args)
+
+    output = " ".join(args[1:]) + "\n"
+
+    if redirect_file:
+        try:
+            with open(redirect_file, 'w') as f:
+                f.write(output)
+        except Exception as e:
+            sys.stdout.write(f"echo: error writing to file: {e}\n")
+    else:
+        sys.stdout.write(output)
 
 def handle_type(args: list[str]):
-    """Handle the type command."""
-    #args = command.split()[1:]
-    if  len(args) < 2:
-        sys.stdout.write("type: missing argument\n")
-        return
+    args, redirect_file = split_redirect(args)
 
-    cmd = args[1]
-
-    if cmd in BUILTIN_COMMANDS:
-        sys.stdout.write(f"{cmd} is a shell builtin\n")
-    elif path := shutil.which(cmd):
-        sys.stdout.write(f"{cmd} is {path}\n")
+    if len(args) < 2:
+        output = "type: missing argument\n"
     else:
-        sys.stdout.write(f"{cmd}: not found\n")
+        cmd = args[1]
+        if cmd in BUILTIN_COMMANDS:
+            output = f"{cmd} is a shell builtin\n"
+        elif path := shutil.which(cmd):
+            output = f"{cmd} is {path}\n"
+        else:
+            output = f"{cmd}: not found\n"
+
+    if redirect_file:
+        with open(redirect_file, 'w') as f:
+            f.write(output)
+    else:
+        sys.stdout.write(output)
 
 def handle_command(command: str):
     """Parse and execute the command."""
@@ -144,15 +157,43 @@ def parse_command(command: str) -> list:
 
     return args
 
+def split_redirect(args: list[str]) -> tuple[list[str], str | None]:
+    """Split the arguments and detect stdout redirection."""
+    redirect_file = None
+    new_args = []
+
+    i = 0
+    while i < len(args):
+        if args[i] in ('>', '1>'):
+            if i + 1 < len(args):
+                redirect_file = args[i + 1]
+                i += 2  # Skip the file name too
+                continue
+            else:
+                sys.stdout.write("Syntax error: no file specified for redirection\n")
+                return args, None
+        else:
+            new_args.append(args[i])
+            i += 1
+
+    return new_args, redirect_file
 
 def run_program(args: list[str]):
-    """Run an external command with arguments using subprocess."""
+    """Run an external command with optional stdout redirection."""
+    args, redirect_file = split_redirect(args)
+
+    if not args:
+        return
 
     executable = shutil.which(args[0])
 
     if executable:
         try:
-            result = subprocess.run(args, check=False)
+            if redirect_file:
+                with open(redirect_file, 'w') as f:
+                    subprocess.run(args, stdout=f, stderr=sys.stderr)
+            else:
+                subprocess.run(args)
         except Exception as e:
             sys.stdout.write(f"Error executing command: {e}\n")
     else:
