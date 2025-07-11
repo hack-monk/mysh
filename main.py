@@ -15,22 +15,32 @@ def handle_exit(command: str) -> bool:
     return command.strip() == "exit 0"
 
 def handle_echo(args: list[str]):
-    """Handle the echo command with optional redirection."""
-    args, redirect_file = split_redirect(args)
-
+    args, stdout_redirect, stderr_redirect = split_redirect(args)
     output = " ".join(args[1:]) + "\n"
 
-    if redirect_file:
-        try:
-            with open(redirect_file, 'w') as f:
-                f.write(output)
-        except Exception as e:
-            sys.stdout.write(f"echo: error writing to file: {e}\n")
-    else:
-        sys.stdout.write(output)
+    try:
+        out_target = open(stdout_redirect[0], stdout_redirect[1]) if stdout_redirect else None
+        err_target = open(stderr_redirect[0], stderr_redirect[1]) if stderr_redirect else None
+
+        if out_target:
+            out_target.write(output)
+        else:
+            sys.stdout.write(output)
+
+        if err_target:
+            pass  # ensure file is created even if unused
+
+        if out_target:
+            out_target.close()
+        if err_target:
+            err_target.close()
+
+    except Exception as e:
+        sys.stdout.write(f"echo: error writing to file: {e}\n")
+
 
 def handle_type(args: list[str]):
-    args, redirect_file = split_redirect(args)
+    args, stdout_file, stderr_file = split_redirect(args)
 
     if len(args) < 2:
         output = "type: missing argument\n"
@@ -43,11 +53,12 @@ def handle_type(args: list[str]):
         else:
             output = f"{cmd}: not found\n"
 
-    if redirect_file:
-        with open(redirect_file, 'w') as f:
+    if stdout_file:
+        with open(stdout_file, 'w') as f:
             f.write(output)
     else:
         sys.stdout.write(output)
+
 
 def handle_command(command: str):
     """Parse and execute the command."""
@@ -157,30 +168,65 @@ def parse_command(command: str) -> list:
 
     return args
 
-def split_redirect(args: list[str]) -> tuple[list[str], str | None]:
-    """Split the arguments and detect stdout redirection."""
-    redirect_file = None
+def split_redirect(args: list[str]) -> tuple[list[str], tuple[str, str] | None, tuple[str, str] | None]:
+    """
+    Splits args and returns:
+      - cleaned args
+      - stdout redirection: (filename, mode) or None
+      - stderr redirection: (filename, mode) or None
+    """
+    stdout_redirect = None
+    stderr_redirect = None
     new_args = []
 
     i = 0
     while i < len(args):
         if args[i] in ('>', '1>'):
             if i + 1 < len(args):
-                redirect_file = args[i + 1]
-                i += 2  # Skip the file name too
+                stdout_redirect = (args[i + 1], 'w')  # overwrite
+                i += 2
                 continue
             else:
-                sys.stdout.write("Syntax error: no file specified for redirection\n")
-                return args, None
+                sys.stdout.write("Syntax error: no file for stdout redirection\n")
+                return args, None, None
+
+        elif args[i] in ('>>', '1>>'):
+            if i + 1 < len(args):
+                stdout_redirect = (args[i + 1], 'a')  # append
+                i += 2
+                continue
+            else:
+                sys.stdout.write("Syntax error: no file for stdout append\n")
+                return args, None, None
+
+        elif args[i] == '2>':
+            if i + 1 < len(args):
+                stderr_redirect = (args[i + 1], 'w')  # overwrite
+                i += 2
+                continue
+            else:
+                sys.stdout.write("Syntax error: no file for stderr redirection\n")
+                return args, None, None
+
+        elif args[i] == '2>>':
+            if i + 1 < len(args):
+                stderr_redirect = (args[i + 1], 'a')  # append
+                i += 2
+                continue
+            else:
+                sys.stdout.write("Syntax error: no file for stderr append\n")
+                return args, None, None
+
         else:
             new_args.append(args[i])
             i += 1
 
-    return new_args, redirect_file
+    return new_args, stdout_redirect, stderr_redirect
+
 
 def run_program(args: list[str]):
-    """Run an external command with optional stdout redirection."""
-    args, redirect_file = split_redirect(args)
+    """Run an external command with redirection support."""
+    args, stdout_redirect, stderr_redirect = split_redirect(args)
 
     if not args:
         return
@@ -189,11 +235,20 @@ def run_program(args: list[str]):
 
     if executable:
         try:
-            if redirect_file:
-                with open(redirect_file, 'w') as f:
-                    subprocess.run(args, stdout=f, stderr=sys.stderr)
-            else:
-                subprocess.run(args)
+            stdout_target = open(stdout_redirect[0], stdout_redirect[1]) if stdout_redirect else None
+            stderr_target = open(stderr_redirect[0], stderr_redirect[1]) if stderr_redirect else None
+
+            subprocess.run(
+                args,
+                stdout=stdout_target or sys.stdout,
+                stderr=stderr_target or sys.stderr
+            )
+
+            if stdout_target:
+                stdout_target.close()
+            if stderr_target:
+                stderr_target.close()
+
         except Exception as e:
             sys.stdout.write(f"Error executing command: {e}\n")
     else:
