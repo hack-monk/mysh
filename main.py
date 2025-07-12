@@ -2,6 +2,7 @@ import sys
 import shutil
 import subprocess
 import os
+import readline
 
 BUILTIN_COMMANDS = ["exit", "echo", "type", "pwd", "cd"]
 
@@ -223,6 +224,56 @@ def split_redirect(args: list[str]) -> tuple[list[str], tuple[str, str] | None, 
 
     return new_args, stdout_redirect, stderr_redirect
 
+def completer(text, state):
+    global last_completion
+
+    suggestions = []
+
+    # 1. Built-in commands
+    suggestions.extend([cmd for cmd in BUILTIN_COMMANDS if cmd.startswith(text)])
+
+    # 2. External executables in PATH
+    seen = set()
+    path_dirs = os.environ.get("PATH", "").split(os.pathsep)
+    for dir_path in path_dirs:
+        if not os.path.isdir(dir_path):
+            continue
+        try:
+            for entry in os.listdir(dir_path):
+                full_path = os.path.join(dir_path, entry)
+                if entry.startswith(text) and os.access(full_path, os.X_OK) and entry not in seen:
+                    suggestions.append(entry)
+                    seen.add(entry)
+        except Exception:
+            continue
+
+    # Handle multiple matches logic
+    if state == 0:
+        if text == last_completion["prefix"]:
+            last_completion["count"] += 1
+        else:
+            last_completion["prefix"] = text
+            last_completion["count"] = 1
+
+        if len(suggestions) > 1 and last_completion["count"] == 1:
+            print("\a", end="", flush=True)  # ring bell
+            return None
+
+        if len(suggestions) > 1 and last_completion["count"] == 2:
+            print()  # newline before match list
+            sys.stdout.write("  ".join(sorted(suggestions)) + "\n")
+            sys.stdout.flush()
+
+            # Reprint prompt and restore typed text
+            prompt()
+            readline.insert_text(text)
+            readline.redisplay()
+            return None
+        
+    # Return one match at a time if fewer than 2 matches
+    if state < len(suggestions):
+        return suggestions[state] + ' '
+    return None
 
 def run_program(args: list[str]):
     """Run an external command with redirection support."""
@@ -255,6 +306,12 @@ def run_program(args: list[str]):
         sys.stdout.write(f"{args[0]}: command not found\n")
 
 def main():
+
+    # Enable tab completion
+    readline.set_completer(completer)
+    readline.parse_and_bind("tab: complete")
+
+
     """Main REPL loop."""
     while True:
         prompt()
