@@ -5,6 +5,10 @@ import os
 import readline
 
 BUILTIN_COMMANDS = ["exit", "echo", "type", "pwd", "cd"]
+last_completion = {"prefix": "", "count": 0}
+last_tab_text = ""
+last_tab_matches = []
+last_tab_count = 0
 
 def prompt():
     """Display the shell prompt."""
@@ -224,56 +228,100 @@ def split_redirect(args: list[str]) -> tuple[list[str], tuple[str, str] | None, 
 
     return new_args, stdout_redirect, stderr_redirect
 
-def completer(text, state):
-    global last_completion
 
-    suggestions = []
+def get_executable_matches(text):
+    matches = []
 
-    # 1. Built-in commands
-    suggestions.extend([cmd for cmd in BUILTIN_COMMANDS if cmd.startswith(text)])
+    # Built-ins
+    for cmd in BUILTIN_COMMANDS:
+        if cmd.startswith(text):
+            matches.append(cmd)
 
-    # 2. External executables in PATH
-    seen = set()
-    path_dirs = os.environ.get("PATH", "").split(os.pathsep)
-    for dir_path in path_dirs:
+    # Executables in PATH
+    seen = set(matches)
+    for dir_path in os.environ.get("PATH", "").split(os.pathsep):
         if not os.path.isdir(dir_path):
             continue
         try:
             for entry in os.listdir(dir_path):
-                full_path = os.path.join(dir_path, entry)
-                if entry.startswith(text) and os.access(full_path, os.X_OK) and entry not in seen:
-                    suggestions.append(entry)
-                    seen.add(entry)
+                if entry.startswith(text):
+                    full_path = os.path.join(dir_path, entry)
+                    if os.access(full_path, os.X_OK) and entry not in seen:
+                        matches.append(entry)
+                        seen.add(entry)
         except Exception:
             continue
 
-    # Handle multiple matches logic
-    if state == 0:
-        if text == last_completion["prefix"]:
-            last_completion["count"] += 1
-        else:
-            last_completion["prefix"] = text
-            last_completion["count"] = 1
+    return sorted(matches)
 
-        if len(suggestions) > 1 and last_completion["count"] == 1:
-            print("\a", end="", flush=True)  # ring bell
-            return None
 
-        if len(suggestions) > 1 and last_completion["count"] == 2:
-            print()  # newline before match list
-            sys.stdout.write("  ".join(sorted(suggestions)) + "\n")
+def get_longest_common_prefix(strings):
+    if not strings:
+        return ""
+    prefix = strings[0]
+    for s in strings[1:]:
+        i = 0
+        while i < len(prefix) and i < len(s) and prefix[i] == s[i]:
+            i += 1
+        prefix = prefix[:i]
+        if not prefix:
+            break
+    return prefix
+
+
+def completer(text, state):
+    global last_tab_text, last_tab_matches, last_tab_count
+
+    buffer = readline.get_line_buffer()
+    cursor_pos = readline.get_begidx()
+
+    # Only autocomplete the first word (command name)
+    if cursor_pos > 0:
+        return None
+
+    # Reset if new input
+    if text != last_tab_text:
+        last_tab_text = text
+        last_tab_matches = get_executable_matches(text)
+        last_tab_count = 0
+
+    # No matches
+    if not last_tab_matches:
+        return None
+
+    # Only one match → return it
+    if len(last_tab_matches) == 1:
+        if state == 0:
+            last_tab_count = 0
+            return last_tab_matches[0] + " "
+        return None
+
+    # Compute LCP of all matches
+    lcp = get_longest_common_prefix(last_tab_matches)
+
+    # If LCP is longer than current text → complete it
+    if len(lcp) > len(text):
+        if state == 0:
+            last_tab_text = lcp
+            return lcp
+        return None
+
+    # If LCP == text → multiple matches, handle bell or list
+    if last_tab_count == 0:
+        last_tab_count += 1
+        if state == 0:
+            sys.stdout.write("\a")  # Bell
             sys.stdout.flush()
+        return None
+    else:
+        if state == 0:
+            print()
+            print("  ".join(last_tab_matches))
+            sys.stdout.write(f"$ {text}")
+            sys.stdout.flush()
+        return None
 
-            # Reprint prompt and restore typed text
-            prompt()
-            readline.insert_text(text)
-            readline.redisplay()
-            return None
-        
-    # Return one match at a time if fewer than 2 matches
-    if state < len(suggestions):
-        return suggestions[state] + ' '
-    return None
+
 
 def run_program(args: list[str]):
     """Run an external command with redirection support."""
@@ -306,23 +354,19 @@ def run_program(args: list[str]):
         sys.stdout.write(f"{args[0]}: command not found\n")
 
 def main():
-
-    # Enable tab completion
-    readline.set_completer(completer)
+    
     readline.parse_and_bind("tab: complete")
+    readline.set_completer(completer)
+    readline.set_completer_delims(' \t\n')
 
-
-    """Main REPL loop."""
     while True:
-        prompt()
-
         try:
-            command = input().strip()
+            command = input("$ ")  # Pass prompt directly here
         except (EOFError, KeyboardInterrupt):
             print()
             break
 
-        if handle_exit(command):
+        if handle_exit(command.strip()):
             break
 
         handle_command(command)
