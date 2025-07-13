@@ -3,6 +3,7 @@ import shutil
 import subprocess
 import os
 import readline
+import io
 
 BUILTIN_COMMANDS = ["exit", "echo", "type", "pwd", "cd"]
 last_completion = {"prefix": "", "count": 0}
@@ -67,7 +68,15 @@ def handle_type(args: list[str]):
 
 def handle_command(command: str):
     """Parse and execute the command."""
+    if not command:
+        return
+    
+    if '|' in command:
+        run_pipeline(command)
+        return
+    
     args = parse_command(command)
+    
     if not args:
         return
 
@@ -84,7 +93,6 @@ def handle_command(command: str):
     elif cmd == "cd":
         handle_cd(args)
     else:
-        #sys.stdout.write(f"{command}: command not found\n")
         run_program(args)
 
 def handle_pwd():
@@ -322,6 +330,96 @@ def completer(text, state):
         return None
 
 
+def run_pipeline(command: str):
+    stages = [stage.strip() for stage in command.split('|')]
+    n = len(stages)
+
+    if n < 2:
+        sys.stdout.write("Pipeline must have at least two commands.\n")
+        return
+
+    commands_list = [parse_command(stage) for stage in stages]
+    if any(not cmd for cmd in commands_list):
+        sys.stdout.write("Invalid pipeline command.\n")
+        return
+
+    processes = []
+    prev_read_fd = None
+    pipe_fds = []
+
+    for i, args in enumerate(commands_list):
+        is_builtin = args[0] in BUILTIN_COMMANDS
+
+        # Create pipe for next stage if not the last command
+        if i < n - 1:
+            read_fd, write_fd = os.pipe()
+            pipe_fds.append((read_fd, write_fd))
+        else:
+            read_fd, write_fd = None, None
+
+        pid = os.fork()
+        if pid == 0:
+            # Child process
+
+            # If there's a previous read end, set it as stdin
+            if prev_read_fd is not None:
+                os.dup2(prev_read_fd, 0)
+            # If there's a write end, set it as stdout
+            if write_fd is not None:
+                os.dup2(write_fd, 1)
+
+            # Close all pipe fds in the child
+            for r, w in pipe_fds:
+                try:
+                    os.close(r)
+                    os.close(w)
+                except:
+                    pass
+
+            if is_builtin:
+                run_builtin(args)
+                os._exit(0)
+            else:
+                try:
+                    os.execvp(args[0], args)
+                except FileNotFoundError:
+                    sys.stdout.write(f"{args[0]}: command not found\n")
+                    os._exit(1)
+        else:
+            processes.append(pid)
+            # Parent process: close fds that are no longer needed
+            if prev_read_fd is not None:
+                os.close(prev_read_fd)
+            if write_fd is not None:
+                os.close(write_fd)
+
+            # Update prev_read_fd to current stage's read_fd for next command
+            prev_read_fd = read_fd
+
+    # Close any remaining fds in parent
+    for r, w in pipe_fds:
+        try:
+            os.close(r)
+            os.close(w)
+        except:
+            pass
+
+    # Wait for all processes
+    for pid in processes:
+        os.waitpid(pid, 0)
+
+
+def run_builtin(args):
+    if args[0] == "echo":
+        handle_echo(args)
+    elif args[0] == "type":
+        handle_type(args)
+    elif args[0] == "pwd":
+        handle_pwd()
+    elif args[0] == "cd":
+        handle_cd(args)
+    elif args[0] == "exit":
+        sys.exit(0)
 
 def run_program(args: list[str]):
     """Run an external command with redirection support."""
