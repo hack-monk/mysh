@@ -37,3 +37,17 @@ Mysh is a Python-based interactive shell built from scratch. It supports command
 
 ```bash
 python3 main.py
+
+## To enable persistent history with a file:
+
+HISTFILE=~/mysh_history.txt python3 main.py
+
+## Example
+
+$ echo Hello from Mysh
+Hello from Mysh
+$ history 2
+    3  echo Hello from Mysh
+    4  history 2
+$ cat /etc/passwd | head -n 3 | wc
+
