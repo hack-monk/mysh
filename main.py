@@ -5,7 +5,8 @@ import os
 import readline
 import io
 
-BUILTIN_COMMANDS = ["exit", "echo", "type", "pwd", "cd"]
+BUILTIN_COMMANDS = ["exit", "echo", "type", "pwd", "cd", "history"]
+command_history = []
 last_completion = {"prefix": "", "count": 0}
 last_tab_text = ""
 last_tab_matches = []
@@ -82,6 +83,9 @@ def handle_command(command: str):
 
     cmd = args[0]
 
+    
+    command_history.append(command)
+
     if cmd == "echo":
         handle_echo(args)
     elif cmd == "type":
@@ -92,8 +96,30 @@ def handle_command(command: str):
         handle_pwd()
     elif cmd == "cd":
         handle_cd(args)
+    elif cmd == "history":
+        handle_history(args[1:])
     else:
         run_program(args)
+
+def handle_history(args=None):
+    """Print the command history with line numbers. Optionally limit entries using history <n>."""
+    try:
+        # Default: show all history
+        limit = None
+
+        # If an argument is passed, try converting it to an integer
+        if args and len(args) == 1:
+            limit = int(args[0])
+
+        start_index = max(len(command_history) - limit, 0) if limit is not None else 0
+        sliced_history = command_history[start_index:]
+
+        for idx, entry in enumerate(sliced_history, start_index + 1):
+            print(f"    {idx}  {entry}")
+
+    except ValueError:
+        print("history: invalid number")
+
 
 def handle_pwd():
     """Handle the pwd command."""
