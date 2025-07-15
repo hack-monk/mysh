@@ -4,6 +4,7 @@ import subprocess
 import os
 import readline
 import io
+import atexit
 
 BUILTIN_COMMANDS = ["exit", "echo", "type", "pwd", "cd", "history"]
 command_history = []
@@ -11,6 +12,27 @@ last_completion = {"prefix": "", "count": 0}
 last_tab_text = ""
 last_tab_matches = []
 last_tab_count = 0
+last_history_index_written = 0  
+
+# Loading history from HISTFILE at startup
+histfile = os.environ.get("HISTFILE")
+if histfile and os.path.isfile(histfile):
+    try:
+        with open(histfile, "r") as f:
+            lines = [line.strip() for line in f if line.strip()]
+            command_history.extend(lines)
+    except Exception as e:
+        print(f"Warning: failed to load HISTFILE: {e}")
+
+# Save history to HISTFILE at exit
+def save_history_on_exit():
+    if histfile:
+        try:
+            with open(histfile, "w") as f:
+                f.write("\n".join(command_history) + "\n")
+        except Exception as e:
+            print(f"Warning: failed to save HISTFILE: {e}")
+atexit.register(save_history_on_exit)
 
 def prompt():
     """Display the shell prompt."""
@@ -84,7 +106,7 @@ def handle_command(command: str):
     cmd = args[0]
 
     
-    command_history.append(command)
+    command_history.append(command.strip())
 
     if cmd == "echo":
         handle_echo(args)
@@ -101,24 +123,66 @@ def handle_command(command: str):
     else:
         run_program(args)
 
+
 def handle_history(args=None):
-    """Print the command history with line numbers. Optionally limit entries using history <n>."""
+    """Handles the 'history' builtin command."""
+    global command_history
+    global last_history_index_written
+
+    if not args:
+        # Print all history
+        for i, cmd in enumerate(command_history, 1):
+            print(f"    {i}  {cmd}")
+        return
+
+    # Handle `-r <file>` case
+    if args[0] == "-r":
+        if len(args) != 2:
+            print("history: usage: history -r <file>")
+            return
+        try:
+            with open(args[1], "r") as f:
+                lines = [line.strip() for line in f if line.strip()]
+                command_history.extend(lines)
+        except Exception as e:
+            print(f"history: cannot read file: {e}")
+        return
+
+    # Handle `-w <file>` case
+    if args[0] == "-w":
+        if len(args) != 2:
+            print("history: usage: history -w <file>")
+            return
+        try:
+            with open(args[1], "w") as f:
+                f.write("\n".join(command_history) + "\n")  # Trailing newline
+            last_history_index_written = len(command_history)
+        except Exception as e:
+            print(f"history: cannot write file: {e}")
+        return
+
+    # Handle `-a <file>` case
+    if args[0] == "-a":
+        if len(args) != 2:
+            print("history: usage: history -a <file>")
+            return
+        try:
+            with open(args[1], "a") as f:
+                for cmd in command_history[last_history_index_written:]:
+                    f.write(cmd + "\n")
+            last_history_index_written = len(command_history)
+        except Exception as e:
+            print(f"history: cannot append to file: {e}")
+        return
+
+    # Handle `history <n>` case
     try:
-        # Default: show all history
-        limit = None
-
-        # If an argument is passed, try converting it to an integer
-        if args and len(args) == 1:
-            limit = int(args[0])
-
-        start_index = max(len(command_history) - limit, 0) if limit is not None else 0
-        sliced_history = command_history[start_index:]
-
-        for idx, entry in enumerate(sliced_history, start_index + 1):
-            print(f"    {idx}  {entry}")
-
+        n = int(args[0])
+        start = max(len(command_history) - n, 0)
+        for i, cmd in enumerate(command_history[start:], start + 1):
+            print(f"    {i}  {cmd}")
     except ValueError:
-        print("history: invalid number")
+        print("history: invalid argument")
 
 
 def handle_pwd():
@@ -491,6 +555,7 @@ def main():
             break
 
         if handle_exit(command.strip()):
+            command_history.append(command.strip())
             break
 
         handle_command(command)
